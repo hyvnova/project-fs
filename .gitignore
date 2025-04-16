@@ -1,6 +1,5 @@
-# === Universal Rust Build Artifacts ===
+# Ignore all target folders
 **/target/
-**/Cargo.lock
 **/debug/
 **/release/
 **/build/
@@ -9,16 +8,13 @@
 **/.rustup/
 **/.rustc/
 
-# === Backups and Swaps ===
-**/*.rs.bk
-**/*.swp
-**/*~
+# Ignore lockfiles and backup metadata
+**/Cargo.lock
+**/*.pdb
+**/*.rlib
+**/*.rmeta
+**/incremental/
 
-# === IDE/editor config ===
-**/.idea/
-**/.vscode/
-
-# === Node/Tauri front-end ===
+# Frontend garbage
 **/node_modules/
-**/dist/
-**/.vite
+**/.vite/

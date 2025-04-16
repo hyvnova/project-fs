@@ -1,0 +1,20 @@
+# Ignore all target folders
+**/target/
+**/debug/
+**/release/
+**/build/
+**/.fingerprint/
+**/.cargo/
+**/.rustup/
+**/.rustc/
+
+# Ignore lockfiles and backup metadata
+**/Cargo.lock
+**/*.pdb
+**/*.rlib
+**/*.rmeta
+**/incremental/
+
+# Frontend garbage
+**/node_modules/
+**/.vite/

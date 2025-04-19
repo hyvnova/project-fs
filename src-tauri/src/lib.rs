@@ -6,9 +6,10 @@ use tauri::{ AppHandle, Emitter };
 use types::Node;
 use parser::Parser;
 use once_cell::sync::Lazy;
+use walkdir::WalkDir;
 use std::sync::RwLock;
 use rayon::prelude::*;
-use std::sync::mpsc::channel;
+use crossbeam::channel::unbounded;
 
 mod parser;
 mod macros;
@@ -90,6 +91,7 @@ async fn load_tree() -> Result<(), String> {
     Ok(())
 }
 
+
 #[tauri::command]
 async fn stream_query(
     app: AppHandle,
@@ -97,75 +99,66 @@ async fn stream_query(
     limit: usize,
     chunk_size: usize
 ) -> Result<(), String> {
-    let (sender, receiver) = channel();
+    let (sender, receiver) = unbounded();
 
     // Spawn filtering in background thread
     let app_clone = app.clone();
 
     std::thread::spawn(move || {
-
-         let mut data: Vec<String> = with_tree(|tree| {
-            tree.get_data()
-                .par_iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect()
-        });
-
-        if data.len() == 0 {
-            return;
-        }
-
-
-        // Parse nodes
-        // Then, filter nodes that have a argument parse error--invalid args
         let filters: Vec<Node> = Parser::parse(q.clone())
-            .iter()
-            .filter(|node| {
-                if let Node::Call { func, args } = node {
-                    return match func(&data[0], args) {
-                        Err(_) =>  false,
-                        _ =>  true
-                    }
+            .into_iter()
+            .filter(|node| match node {
+                Node::Call { func, args } => {
+                    let dummy_path = PathBuf::from("/").to_path_buf();
+                    func(&dummy_path.to_string_lossy().to_string(), args).is_ok()
                 }
-                else {
+                Node::Fail(e) => {
                     app_clone.emit("parse-error", e).unwrap();
-                    return false;
+                    false
                 }
             })
-            .cloned()
-            .collect::<Vec<Node>>();
+            .collect();
 
-       
-        for filter in filters {
-            if let Node::Call { func, args } = filter {
-                data = data
-                    .par_iter()
-                    .filter(|path| func(path, &args).unwrap_or(false))
-                    .cloned()
-                    .collect();
-            }
-        }
+        let mut results = Vec::new();
+        let mut total_sent = 0;
 
-
-        //  Send up to `limit` total results, in chunks
-        let mut sent = 0;
-        for chunk in data.chunks(chunk_size) {
-            if sent >= limit {
+        for entry in WalkDir::new(DEFUALT_INITIAL_PATHL)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+        {
+            if total_sent >= limit {
                 break;
             }
 
-            // Don't oversend
-            let to_send = &chunk[..std::cmp::min(chunk.len(), limit - sent)];
-            sender.send(to_send.to_vec()).unwrap();
+            let path = entry.path().to_path_buf();
+            let path_str = path.to_string_lossy().to_string();
 
-            sent += to_send.len();
+            let valid = filters.iter().all(|filter| match filter {
+                Node::Call { func, args } => func(&path_str, args).unwrap_or(false),
+                _ => false,
+            });
+
+            if valid {
+                results.push(path_str);
+                total_sent += 1;
+
+                if results.len() >= chunk_size {
+                    sender.send(results.clone()).unwrap();
+                    results.clear();
+                }
+            }
+        }
+
+        // Send remaining items if any
+        if !results.is_empty() {
+            sender.send(results).unwrap();
         }
     });
 
     // clear UI
     app.emit("clear", true).unwrap();
 
-    // This still reads chunks and emits them
     tauri::async_runtime::spawn(async move {
         for chunk in receiver {
             app.emit("query-chunk", chunk).unwrap();
@@ -179,20 +172,20 @@ async fn stream_query(
 pub fn run() {
     tauri::Builder
         ::default()
-        .setup(|app| {
-            // This runs once at launch, before frontend is ready.
-            tauri::async_runtime::spawn(async move {
-                match load_tree().await {
-                    Ok(_) => println!("Tree loaded at startup."),
-                    Err(e) => eprintln!("Failed to load tree: {e}"),
-                }
-            });
+        // .setup(|app| {
+        //     // This runs once at launch, before frontend is ready.
+        //     tauri::async_runtime::spawn(async move {
+        //         match load_tree().await {
+        //             Ok(_) => println!("Tree loaded at startup."),
+        //             Err(e) => eprintln!("Failed to load tree: {e}"),
+        //         }
+        //     });
 
-            Ok(())
-        })
+        //     Ok(())
+        // })
         .plugin(tauri_plugin_opener::init())
         // << handlers >>
-        .invoke_handler(tauri::generate_handler![read_dir, stream_query, load_tree])
+        .invoke_handler(tauri::generate_handler![read_dir, stream_query])
 
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

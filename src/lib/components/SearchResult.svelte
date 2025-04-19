@@ -37,7 +37,7 @@
   })
 </script>
 
-<div class="container overflow-y-auto overflow-x-hidden">
+<div class="container overflow-y-auto overflow-x-hidden col-span-2">
 
   
   {#if items.length === 0}

@@ -3,7 +3,7 @@
   import { invoke } from "@tauri-apps/api/core";
   import { add_col, columns, remove_col } from "$lib/stores/columns";
   import { listen } from "@tauri-apps/api/event";
-  import { parse_errors } from "$lib/stores/parse_erros_arg";
+  import { parse_error } from "$lib/stores/parse_error";
   import { get } from "svelte/store";
 
   let input = $state<string>("");
@@ -20,16 +20,16 @@
   listen("parse-error", (error) => {
     console.log("parse error: ", error);
 
-    parse_errors.update(errs => {
-      errs.push(error.payload as string);
-      return errs;
+    parse_error.update(err => {
+      err = error.payload as string;
+      return err;
     })
 
   });
 
   
-  parse_errors.subscribe(() => {
-    if (get(parse_errors).length > 1) {
+  parse_error.subscribe(() => {
+    if (get(parse_error) !== null) {
       add_col("ParseError");
     } else {
       remove_col("ParseError")

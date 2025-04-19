@@ -2,14 +2,13 @@ use std::fs;
 use std::path::{ Path, PathBuf };
 use fs_tree_db::excludes::get_excludes;
 use fs_tree_db::Tree;
-use tauri::{AppHandle, Emitter};
+use tauri::{ AppHandle, Emitter };
 use types::Node;
 use parser::Parser;
 use once_cell::sync::Lazy;
 use std::sync::RwLock;
 use rayon::prelude::*;
 use std::sync::mpsc::channel;
-
 
 mod parser;
 mod macros;
@@ -21,22 +20,12 @@ const DEFUALT_INITIAL_PATHL: &str = r#"C:\"#;
 const DEFAULT_SAVE_PATH: &str =
     r#"C:\Users\Hyvnt\T\Rust\file-explorer\fs_tree_db\save\tree.bincode"#;
 
+pub static GLOBAL_TREE: Lazy<RwLock<Option<Tree>>> = Lazy::new(|| { RwLock::new(None) });
 
-pub static GLOBAL_TREE: Lazy<RwLock<Option<Tree>>> = Lazy::new(|| {
-    RwLock::new(None)
-});
-
-
-pub fn with_tree<F, R>(f: F) -> R
-where
-    F: FnOnce(&Tree) -> R,
-{
+pub fn with_tree<F, R>(f: F) -> R where F: FnOnce(&Tree) -> R {
     let tree = GLOBAL_TREE.read().unwrap();
     f(tree.as_ref().expect("Tree not initialized"))
 }
-
-
-
 
 #[tauri::command]
 fn read_dir(
@@ -81,8 +70,6 @@ fn read_dir(
     }
 }
 
-
-
 #[tauri::command]
 async fn load_tree() -> Result<(), String> {
     let save_path = PathBuf::from(DEFAULT_SAVE_PATH);
@@ -103,34 +90,62 @@ async fn load_tree() -> Result<(), String> {
     Ok(())
 }
 
-
 #[tauri::command]
-async fn stream_query(app: AppHandle, q: String, limit: usize, chunk_size: usize) -> Result<(), String> {
+async fn stream_query(
+    app: AppHandle,
+    q: String,
+    limit: usize,
+    chunk_size: usize
+) -> Result<(), String> {
     let (sender, receiver) = channel();
 
     // Spawn filtering in background thread
-    std::thread::spawn(move || {
-        let nodes: Vec<Node> = Parser::parse(q.clone());
+    let app_clone = app.clone();
 
-        let mut data: Vec<String> = with_tree(|tree| {
+    std::thread::spawn(move || {
+
+         let mut data: Vec<String> = with_tree(|tree| {
             tree.get_data()
                 .par_iter()
                 .map(|p| p.to_string_lossy().to_string())
                 .collect()
         });
 
-        for node in nodes {
-            match node {
-                Node::Call { func, args } => {
-                    data = data
-                        .par_iter()
-                        .filter(|item| func(item, &args))
-                        .cloned()
-                        .collect();
+        if data.len() == 0 {
+            return;
+        }
+
+
+        // Parse nodes
+        // Then, filter nodes that have a argument parse error--invalid args
+        let filters: Vec<Node> = Parser::parse(q.clone())
+            .iter()
+            .filter(|node| {
+                if let Node::Call { func, args } = node {
+                    return match func(&data[0], args) {
+                        Err(_) =>  false,
+                        _ =>  true
+                    }
                 }
-                _ => {}
+                else {
+                    app_clone.emit("parse-error", e).unwrap();
+                    return false;
+                }
+            })
+            .cloned()
+            .collect::<Vec<Node>>();
+
+       
+        for filter in filters {
+            if let Node::Call { func, args } = filter {
+                data = data
+                    .par_iter()
+                    .filter(|path| func(path, &args).unwrap_or(false))
+                    .cloned()
+                    .collect();
             }
         }
+
 
         //  Send up to `limit` total results, in chunks
         let mut sent = 0;
@@ -150,7 +165,6 @@ async fn stream_query(app: AppHandle, q: String, limit: usize, chunk_size: usize
     // clear UI
     app.emit("clear", true).unwrap();
 
-
     // This still reads chunks and emits them
     tauri::async_runtime::spawn(async move {
         for chunk in receiver {
@@ -160,7 +174,6 @@ async fn stream_query(app: AppHandle, q: String, limit: usize, chunk_size: usize
 
     Ok(())
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

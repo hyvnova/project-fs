@@ -24,10 +24,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4.40"
 lazy_static = "1.5.0"
-
-# Local dep
-fs_tree_db = { path = "../fs_tree_db" }
+regex = "1.11.1"
 once_cell = "1.21.3"
 rayon = "1.10.0"
+walkdir = "2.5.0"
+fs_tree_db = { path = "../fs_tree_db" }
 
 

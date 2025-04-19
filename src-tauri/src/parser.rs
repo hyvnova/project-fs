@@ -3,12 +3,12 @@ use chrono::NaiveDate;
 use crate::{ define_functions, types::{ Arg, Node, Operator, Unit } };
 
 // Creates a map `FUNCTION_MAP`, containing `name`:`function`
-define_functions!(has);
+// Filter function definition.
+define_functions!(has, size, modified);
 
 pub struct Parser;
 
 impl Parser {
-
     pub fn parse(q: String) -> Vec<Node> {
         q.split_ascii_whitespace()
             .map(|pair| {
@@ -17,14 +17,14 @@ impl Parser {
                 dbg!(&pair);
 
                 if aux.len() != 2 {
-                    return Node::Fail(pair.to_string());
+                    return Node::Fail(String::new());
                 }
 
                 let function = aux[0].trim();
                 let raw_args = aux[1].trim();
 
                 if !FUNCTION_MAP.contains_key(function) {
-                    return Node::Fail(function.to_string());
+                    return Node::Fail(String::new());
                 }
 
                 let args: Arg = match parse_args(raw_args) {
@@ -119,25 +119,30 @@ fn split_args(input: &str) -> Result<Vec<String>, String> {
     Ok(result)
 }
 
+/// Converts given size as string to size in bytes 
 fn parse_size(s: &str) -> Result<u64, String> {
     let s = s.trim().to_lowercase();
 
-    let multiplier = if s.ends_with("kb") {
-        1_000
-    } else if s.ends_with("mb") {
-        1_000_000
-    } else if s.ends_with("gb") {
-        1_000_000_000
-    } else {
-        return Err("Invalid size suffix".into());
+    let idx = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    let (num_part, suffix) = s.split_at(idx);
+
+    let multiplier: i32 = match suffix.to_lowercase().as_str() {
+        "b" => 1,
+        "kb" => 1_000,
+        "mb" => 1_000_000,
+        "gb" => 1_000_000_000,
+        "" => 1, //asumir byte (todo: option desde el user config)
+        _ => {
+            return Err("Invalid size suffix".into());
+        }
     };
 
-    let number_part = &s[..s.len() - 2]; // strip suffix
-    let num: f64 = number_part.trim().parse().map_err(|_| "Invalid size number")?;
+    let num: f64 = num_part
+        .parse()
+        .map_err(|_| "Invalid size number")?;
 
-    Ok((num * multiplier as f64) as u64)
+    Ok((num * (multiplier as f64)) as u64)
 }
-
 
 fn parse_date(s: &str) -> Result<NaiveDate, String> {
     NaiveDate::parse_from_str(s, "%d/%m/%Y")
@@ -183,6 +188,9 @@ fn parse_args(raw: &str) -> Result<Arg, String> {
         return Ok(Arg::Group(parsed?));
     }
 
+    // Conditional
+    // (< | >){num}{unit}
+    //       |   mm/dd/yyyy
     if first_char == '<' || first_char == '>' {
         let op = match first_char {
             '<' => Operator::Lt,
@@ -234,7 +242,6 @@ fn parse_args(raw: &str) -> Result<Arg, String> {
     if raw.parse::<i32>().is_ok() || raw.parse::<f64>().is_ok() {
         return Ok(Arg::Literal(raw.to_string()));
     }
-
 
     // Fallback: treat as literal
     Ok(Arg::Literal(raw.to_string()))

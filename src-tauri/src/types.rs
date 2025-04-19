@@ -2,22 +2,22 @@ use chrono::NaiveDate;
 
 
 
-pub type FunctionTy = fn(&str, &Arg) -> bool; 
+pub type FunctionTy = fn(&str, &Arg) -> Result<bool, String>; 
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Operator {
     Lt,
     Gt,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Unit {
     Date(NaiveDate),
     Size(u64) 
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Arg {
     Literal(String),  // Strings or numbers
 
@@ -34,7 +34,7 @@ pub enum Arg {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Node {
     Fail(String),
 
